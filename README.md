@@ -1,9 +1,9 @@
 # wp78_parser.py
-extracts the following artifacts:
+extracts the following artifacts from a forensic image:
 
-- Account - Create Time
-- Account - Default ID
-- Account - Last Sync Success
+- Account Create Time
+- Account Default ID
+- Account Last Sync Success
 - Bluetooth connected devices
 - Call Log (from pim.vol only - partial extraction)
 - Contacts (from store.vol only - partial extraction)
@@ -15,11 +15,10 @@ extracts the following artifacts:
 - GPS Location Sync Start
 - IMEI
 - Internet Explorer - Typed URLs
-- Last SIM IMSI
+- SIM IMSI and Last SIM IMSI
 - OneDrive - DiskQuotaTotal and DiskQuotaRemaining
 - OneDrive - list of uploaded files
 - Shutdown Date Time
-- SIM IMSI
 - SMS (partial extraction)
 - Wifi Adapter MAC Address
 - Wireless SSIDs
