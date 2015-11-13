@@ -27,7 +27,12 @@
 #
 
 # Change history
-# 2015-09-04 First public release (v 0.1)
+# 2015-11-13  0.2
+# - Bug fixes (missing data in the file column)
+# - Removed file extension check
+#
+# 2015-09-04  0.1
+# - First public release
 
 
 # *********************************************************************************************************************************************************
@@ -64,7 +69,7 @@ os.system('cls')
 dir      = sys.argv[1]
 
 files    = os.listdir(dir)
-files_wp = [i for i in files if i.endswith('.sms')]
+files_wp = [i for i in files]
 
 
 # *********************************************************************************************************************************************************
@@ -238,7 +243,7 @@ for file in files_wp:
                 find=re.findall(r'[0-9+]*', raw_phone[0])
                 if find[0]:
                     sms_phone = status + find[0]
-                    final = sms_date + "\t" + sms_body + "\t" + sms_phone + "\n" #+ "\t" + file + "\n"
+                    final = sms_date + "\t" + sms_body + "\t" + sms_phone + "\t" + file + "\n"
                     sms.append(final)  
         
 dup = str(len(sms))
