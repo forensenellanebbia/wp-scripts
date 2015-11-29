@@ -1,3 +1,7 @@
+Scripts written in Python 2.7.8 and tested on Microsoft Windows.
+Please read my blog post here:
+http://forensenellanebbia.blogspot.it/2015/09/windows-phone-78-forensics.html
+
 # wp78_parser.py
 extracts the following artifacts from a forensic image:
 

@@ -22,6 +22,7 @@
 #
 #
 # Python script to parse the following artifacts from a Windows 7.8 phone:
+# - App IDs
 # - Account - Create Time
 # - Account - Default ID
 # - Account - Last Sync Success
@@ -1162,9 +1163,9 @@ def af_sms():
         fb.seek(hit-18)
         raw_text=fb.read(18).replace("\x00\x00\x03\x00","").replace("\x00\xC0\x00\x00","").replace("\x00\x03\x00\x10","").replace("\x00\x00","").replace("\x08\x00","").replace("\x00","")
         filtered_phone = filter(lambda x: x in string.printable, raw_text) #keep printable characters
-        phone = re.findall(r'[0-9+]*', raw_text) #look for phone numbers
-        for i in phone:
-            if len(i)>2 and i.startswith("+"): #phone number, skip phone numbers which don't start with the + sign
+        phones = re.findall(r'[0-9+]*', raw_text) #look for phone numbers
+        for phone in phones:
+            if len(phone)>2 and phone.startswith("+"): #phone number, skip phone numbers which don't start with the + sign
                 fb.seek(hit+18)
                 for hit2 in hits2:
                     if hit2 > hit and hit2-hit < 200: #end has to be not too far from start
@@ -1172,7 +1173,7 @@ def af_sms():
                                 raw_text=fb.read(hit2-(hit+16))
                                 filtered_body=f_replace_text(raw_text)
                                 if len(filtered_body) > 1:
-                                    a = "Offset: " + str(hit) + "\t" + "From  : " + i + "\t" + "Body  : " + filtered_body.replace("\n"," ") 
+                                    a = str(hit) + "\t" + "From  : " + phone + "\t" + filtered_body.replace("\n"," ") #offset,from,phone number,body 
                                     sms_rcvd.append(a)
                                     temp.append(hit2)
                                     hits2.pop(hits2.index(hit2))
@@ -1202,9 +1203,12 @@ def af_sms():
             if hit2 > hit and hit2-hit < 200:
                 raw_text=fb.read(hit2-(hit+15))
                 filtered_body=f_replace_text(raw_text)
-                if len(filtered_body) > 1:
-                    a = "Offset: " + str(hit) + "\t" + "To    : " + i + "\t" + "Body  : " + filtered_body.replace("\n"," ") 
-                    sms_sent.append(a)
+                try:
+                    if len(filtered_body) > 1:
+                        a = str(hit) + "\t" + "To       : \t" + filtered_body.replace("\n"," ") #offset,body
+                        sms_sent.append(a)
+                except:
+                    pass
 
     # print SMS
     sms = sms_rcvd + sms_sent #merge sms lists
@@ -1214,6 +1218,7 @@ def af_sms():
         print "\n****************************************\n SMS (%s) (partial extraction)\n****************************************\n" % str(len(sms))
         print "(Sent messages are possibly the ones without the recipient's phone number)"
         print "(Text messages have been sorted by offset)\n"
+        print "To retrieve more deleted text messages, please manually carve XML entries\nwith X-Ways Forensics/Encase and then run the other script wp78_sms_xml.py"
         f = open("sms_store.csv","w")
         f.write("Offset\tTo / From\tBody\n")
         f.close()
