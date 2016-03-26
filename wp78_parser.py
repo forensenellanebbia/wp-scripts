@@ -54,6 +54,7 @@
 # Change history
 # 2015-09-04 (v0.1) First public release
 # 2016-03-20 (v0.2) Thanks to Vincent ECKERT for decoding the timestamp and the message type (SENT/RECEIVED) of SMS text messages
+# 2016-03-26 (v0.3) improved unicode support + several small bugs fixed
 
 # ***************************************************************************************************************************************************
 # Welcome
@@ -61,6 +62,7 @@
 
 from datetime import datetime,timedelta
 import binascii
+import codecs
 import os
 import re
 import string
@@ -69,7 +71,7 @@ import sys
 import time
 import urllib
 
-script_version = "0.2"
+script_version = "0.3"
 
 def welcome():
     os.system('cls')
@@ -165,16 +167,6 @@ def sliceNsearchRE(fd, chunksize, delta, term):
     return(final_hitlist)
 
 # -- END -- From https://github.com/cheeky4n6monkey/4n6-scripts/blob/master/wp8-callhistory.py -- END --
-
-def f_replace_text(raw_text):
-    raw_text=raw_text.split('SMS')
-    raw_text=raw_text[0]
-    raw_text=raw_text.replace("\xFF\xFF\x3F\x00","").replace("\x07\x04\x00","").replace("\xFF\xFF\x7F\x40","")
-    raw_text=raw_text.replace("\xFF\xFF\x0F\x00","").replace("\xFF\xFF\xFF","").replace("\x0F\x00\x00\x00","").replace("\xFF\xFF","")
-    raw_text=raw_text.replace("\xE8","e'").replace("\xE9","e'").replace("\xE0","a'").replace("\xF2","o'").replace("\xF9","u'").replace("\xEC","i'")
-    raw_text=raw_text.replace("\xFC","u")
-    filtered_body = filter(lambda x: x in string.printable, raw_text)
-    return filtered_body
 
 
 def f_search_ip(ip2search):
@@ -306,10 +298,13 @@ sig_ssid_end   = "\x3C\x2F\x6E\x61\x6D\x65\x3E\x0D\x0A\x09\x09\x3C\x2F\x53\x53\x
 #SMS
 sig_sms_pre1    = "\x40\x00\x07\x00\x0A"                         # hex sequence before SMS header
 sig_sms_pre2    = "\x40\x00\x07\x00\xFF"                         # hex sequence before SMS header
+sig_sms_pre3    = "\x38\x00\x07\x00\x0A"                         # hex sequence before SMS header
+sig_sms_pre4    = "\x40\x00\x07\x00\x0B"                         # hex sequence before SMS header
 sig_sms_header1 = "\x49\x50\x4D\x2E\x53\x4D\x53\x74"             # (SMS HEADER) IPM.SMSt
 sig_sms_header2 = "\x49\x50\x4D\x2E\x53\x4D\x53\x74\x65\x78\x74" # (SMS HEADER) IPM.SMStext
 sig_sms_footer1 = "\x00\x00\x53\x4D\x53\x00\x00"                 # (SMS FOOTER) ..SMS..
 sig_sms_footer2 = "\x00\x00\x53\x4D\x53\x00\xFF"                 # (SMS FOOTER) ..SMS..
+sig_sms_footer3 = "\xFF\x0F\x53\x4D\x53\x00\x00"                 # (SMS FOOTER) ÿ.SMS..
 
 #APPID
 sig_appid = "\x3D\x00\x22\x00\x61\x00\x70\x00\x70\x00\x3A\x00\x2F\x00\x2F\x00" # ="app://
@@ -566,7 +561,7 @@ def af_sim_imsi():
     
     for hit in hits:
         fb.seek(hit)
-        fb.seek(hit++2+14)
+        fb.seek(hit+2+14)
         simimsi_list.append(fb.read(30).replace("\x00",""))
     
     simimsi_list=sorted(set(simimsi_list))
@@ -713,11 +708,15 @@ def af_gps_location_syncstart():
         fb.seek(hit+34)
         raw_text=fb.read(32).replace("\x00","")
         raw_text=raw_text[:4] + "-" + raw_text[4:6] + "-" + raw_text[6:8] + " " + raw_text[9:11] + ":" + raw_text[11:13] + ":" + raw_text[13:16]
-        locationsyncstart_list.append(raw_text)
+        try:
+            if '20' in raw_text:
+                locationsyncstart_list.append(raw_text)
+        except:
+            pass
         
     locationsyncstart_list = set(locationsyncstart_list)
     locationsyncstart_list = sorted(list(locationsyncstart_list))
-        
+    
     if len(locationsyncstart_list) > 0:
         print "\n****************************************\n GPS - Location Sync Start (UTC) (%s)\n****************************************\n" % str(len(locationsyncstart_list))
         for i in locationsyncstart_list:
@@ -1158,7 +1157,9 @@ def af_call_log():
 def af_sms():
     hits_sms_pre1 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_pre1)
     hits_sms_pre2 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_pre2)
-    hits_sms_pre  = hits_sms_pre1 + hits_sms_pre2
+    hits_sms_pre3 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_pre3)
+    hits_sms_pre4 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_pre4)
+    hits_sms_pre  = hits_sms_pre1 + hits_sms_pre2 + hits_sms_pre3 + hits_sms_pre4
     hits_sms_pre  = set(hits_sms_pre)
     hits_sms_pre  = sorted(list(hits_sms_pre))
     
@@ -1170,16 +1171,17 @@ def af_sms():
      
     hits_sms_footer1 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_footer1)
     hits_sms_footer2 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_footer2)
-    hits_sms_footer  = hits_sms_footer1 + hits_sms_footer2
+    hits_sms_footer3 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_footer3)
+    hits_sms_footer  = hits_sms_footer1 + hits_sms_footer2 + hits_sms_footer3
     hits_sms_footer  = set(hits_sms_footer)
     hits_sms_footer  = sorted(list(hits_sms_footer))
     
     filename = "sms_output.csv"
     
-    f = open(filename,"w")
+    f = codecs.open("sms_output.csv", 'w', 'utf-8')
+    f.write(u'\ufeff') #added for Excel compatibility
     f.write("Offset\tTimestamp (YYYY-MM-DD hh:mm:ss)\tMessage Type\tPhone number\tMessage body\n")
     f.close()
-    f = open(filename,"ab")
     
     found_counter = 0 #used to count the number of recovered text messages
 
@@ -1202,8 +1204,37 @@ def af_sms():
             hit_sms_header = min(offsets_to_check, key=lambda x:abs(x-hit_sms_footer)) #find the closest hit_sms_header to the hit_sms_footer
             fb.seek(hit_sms_header)
             raw_body = fb.read(hit_sms_footer-hit_sms_header)
-            sms_body = f_replace_text(raw_body[15:])
-            sms_body = sms_body.replace('\x0D', ' ').replace('\x0A', ' ').replace('\x0C','') #\x0A new line, \x0D carriage return, \x0C FF
+            sms_body = raw_body[12:].replace('\x0D', '').replace('\x0A', '').replace('\x09', '')
+            #\x0A new line, \x0D carriage return, \x09 horizontal tab
+            #sms_body = filter(lambda x: x in string.printable, sms_body)
+            
+            #remove noise
+            noise = ['\x00','\x01','\x02','\x03','\x04','\x05','\x06','\x07','\x08','\x0B','\x0C','\x0E','\x0F','\x10','\x11',
+                     '\x12','\x13','\x14','\x18','\x19','\x1A','\x1D','\x1F','\x7F','\x80','\x80\x09','\x81','\x82','\x83',
+                     '\x84','\x85','\x88','\x90','\x94','\x98','\x99','\xF5\x6F','\xFF','\x8A','\xA0','\x1A']
+            while True:
+                for i in noise:
+                    if i in sms_body:
+                        sms_body = sms_body.replace(i,'')
+                break
+            
+            #remove additional noise
+            if sms_body.startswith('t'):
+                sms_body = sms_body[1:]
+            elif sms_body.startswith('ext'):
+                sms_body = sms_body[4:]
+            elif sms_body.startswith('o'):
+                sms_body = sms_body[1:]
+            elif sms_body.startswith('xt'):
+                sms_body = sms_body[2:]
+            elif sms_body[1] == " ":
+                sms_body = sms_body[2:]
+            elif sms_body.startswith("?"):
+                sms_body = sms_body[1:]
+            elif sms_body.startswith("@"):
+                sms_body = sms_body[1:]
+                                            
+            sms_body = sms_body.decode('latin_1',"ignore")
             offsets_to_check = []
             for hit_sms_pre in hits_sms_pre:
                 if hit_sms_pre < hit_sms_header and hit_sms_header-hit_sms_pre < 500: #compare offsets
@@ -1214,19 +1245,14 @@ def af_sms():
             hit_sms_pre = min(offsets_to_check, key=lambda x:abs(x-hit_sms_footer)) #find the closest hit_sms_pre to the hit_sms_footer
             sms_offset = str(hit_sms_pre)
             fb.seek(hit_sms_header-18)
-            raw_text=fb.read(18).replace("\x00\x00\x03\x00","").replace("\x00\xC0\x00\x00","")
-            raw_text=raw_text.replace("\x00\x03\x00\x10","").replace("\x00\x00","").replace("\x08\x00","").replace("\x00","")
-            phones = re.findall(r'[0-9+]*', raw_text) #look for phone numbers
+            raw_text=fb.read(18) 
+            allowed_chars = ['+','0','1','2','3','4','5','6','7','8','9'] #allowed characters in a phone number
+            for allowed_char in range(0, len(raw_text)):
+                if raw_text[allowed_char] in allowed_chars:
+                    sms_phone = sms_phone+raw_text[allowed_char]
             
-            for phone in phones:
-                if len(phone)>2 and phone.startswith("+"): #skip phone numbers with no + sign in front of them
-                    sms_phone = "FROM  : " + phone
-            
-            if '21' in sms_type:
-                sms_phone = "TO    : N/A" #N/A = not available
-            elif sms_phone == "":
-                sms_phone = "N/A"
-                    
+            #phones = re.findall(r'[0-9+]*', raw_text) #look for phone numbers
+
             fb.seek(hit_sms_pre-6) # grab the timestamp: read 6 bytes before 0x40 00 07 00 0A
             
             # Timestamp parsing provided by Vincent ECKERT 
@@ -1241,29 +1267,42 @@ def af_sms():
             sms_date    = date_string + "  " + hour + " " + "(UTC)"
             #sms_date = '{}/{}/{}'.format(date.day,date.month,date.year),hour,'UTC'
             #sms_date = '{}-{}-{}'.format(date.year,date.month,date.day),hour,'UTC'
+
+            #read and check message type
             fb.seek(hit_sms_pre + 5 + 4)
             sms_type = binascii.hexlify(fb.read(2))
-           
             if '21' in sms_type:
                 sms_typev = "Sent"
-                sms_phone = "TO    : N/A"
+                sms_phone = "TO: N/A"
             elif '5d' in sms_type:
                 sms_typev = "Received"
-            elif '+' in sms_phone:
-                sms_typev = "Received"
+                if sms_phone == "" or len(sms_phone)<3:
+                    sms_phone = "FROM: N/A"
+                else:
+                    sms_phone = "FROM: " + sms_phone
             else:
-                sms_typev = "N/A"
+                if len(sms_phone) >= 3:
+                    sms_typev = "Received"
+                    sms_phone = "FROM: " + sms_phone
+                else:
+                    sms_typev = "N/A"
+                    sms_phone = "N/A"
             
             if sms_body <> "" and sms_phone <> "": #discard if sms_body and sms_phone are blank (invalid message block)
-                print "\nOFFSET: %s\nDATE  : %s\nTYPE  : %s\n%s\nBODY  : %s" % (sms_offset,sms_date,sms_typev,sms_phone,sms_body)
-                sms = sms_offset + "\t" + sms_date + "\t" + sms_typev + "\t" + sms_phone + "\t" + sms_body
-                found_counter += 1 
-                f.write(sms + "\n")
+                #print "\nOFFSET: %s\nDATE  : %s\nTYPE  : %s\n%s\nBODY  : %s" % (sms_offset,sms_date,sms_typev,sms_phone,sms_body)
+                sms = sms_offset + "\t" + sms_date + "\t" + sms_typev + "\t" + sms_phone + "\t" + sms_body + "\n"
+                found_counter += 1
+                f = open(filename,"ab")
+                f.write(sms.encode('utf-8'))
+                f.close()
+                if found_counter % 50 == 0: #print status every 50 messages
+                    print "..."
+                    print "\nNumber of messages found: %d" % found_counter  
         except:
             pass
     
     print "\n<< Found %d text message(s) (SMS) >>" % found_counter
-    f.close()
+    
     
     if found_counter > 0:
         print "\nText messages exported to %s\%s\n(TAB delimited text file)" % (os.getcwd(),filename)
@@ -1279,14 +1318,11 @@ os.system('cls')
 
 start_time = datetime.now()
 
-#if len(sys.argv) > 2:
 print "\n\nScript started: " + str(start_time)
-op_counter = 0
 for op in sys.argv[2:]:
     if op == "-a":    #account information
         af_account()
         af_account_create_time()
-        op_counter += 1
     elif op == "-d":  #device artifacts
         af_imei()
         af_sim_imsi()
@@ -1294,38 +1330,29 @@ for op in sys.argv[2:]:
         af_wifi_adapter_mac()
         af_friendly_name()
         af_last_shutdown()
-        op_counter += 1
     elif op == "-g":  #gps
         af_gps_last_known_location()
         af_gps_lastposinjected()
         af_gps_location_syncstart()
-        op_counter += 1
     elif op == "-h":  #Internet Explorer History
         af_ie_typed_urls()
-        op_counter += 1
     elif op == "-ip": #DHCP IP Address
         af_dhcp()
         af_gprs_ipaddress()
-        op_counter += 1
     elif op == "-o":  #OneDrive artifacts
         af_onedrive_disk_quota()
         af_onedrive_files_uploaded()
-        op_counter += 1
     elif op == "-p":  #Personal information
         af_contacts()
         af_call_log()
         af_email_smtp()
-        op_counter += 1
     elif op == "-s":  #SMS messages
         af_sms()
-        op_counter += 1
     elif op == "-w":  #Wireless connections
         af_bluetooth()
         af_wifi_ssid()
-        op_counter += 1
     elif op == "-i":   #AppID
         af_appid()
-        op_counter += 1
     elif op == "-all": #Extract all artifacts
         af_imei()
         af_wifi_adapter_mac()
@@ -1350,14 +1377,10 @@ for op in sys.argv[2:]:
         af_appid()
         af_onedrive_disk_quota()
         af_onedrive_files_uploaded()
-        op_counter += 1
     else:
         welcome()
         
-if op_counter > 0:
-    end_time = datetime.now()
-    print "\n\nScript started : " + str(start_time)
-    print "Script finished: " + str(end_time)
-    print('Duration       : {}'.format(end_time - start_time))
-    
-
+end_time = datetime.now()
+print "\n\nScript started : " + str(start_time)
+print "Script finished: " + str(end_time)
+print('Duration       : {}'.format(end_time - start_time))
