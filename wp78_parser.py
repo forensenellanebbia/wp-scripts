@@ -5,7 +5,7 @@
 # Blog  : http://forensenellanebbia.blogspot.it
 #
 # WARNING: This program is provided "as-is"
-# See http://forensenellanebbia.blogspot.it/ for further details.
+# See http://forensenellanebbia.blogspot.it/2015/09/windows-phone-78-forensics.html for further details.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,56 +19,61 @@
 #
 # You can view the GNU General Public License at <http://www.gnu.org/licenses/>
 #
+# __                             __
+# __ SCRIPT TESTED ON PYTHON 2.7 __
 #
 #
 # Python script to parse the following artifacts from a Windows 7.8 phone:
-# - App IDs
-# - Account - Create Time
-# - Account - Default ID
-# - Account - Last Sync Success
-# - Bluetooth connected devices
-# - Call Log (from pim.vol only - partial extraction)
-# - Contacts (from store.vol only - partial extraction)
-# - Device friendly name
-# - DHCP IP Address
-# - Email addresses 
-# - GPS Last Known Position
-# - GPS Last Position Injected
-# - GPS Location Sync Start
-# - IMEI
-# - Internet Explorer - Typed URLs
-# - Last SIM IMSI
-# - OneDrive - DiskQuotaTotal and DiskQuotaRemaining
-# - OneDrive - list of uploaded files
-# - Shutdown Date Time
-# - SIM IMSI
-# - SMS (partial extraction)
-# - Wifi Adapter MAC Address
-# - Wireless SSIDs
+#  - App IDs
+#  - Account - Create Time
+#  - Account - Default ID
+#  - Account - Last Sync Success
+#  - Bluetooth connected devices
+#  - Call Log (from pim.vol only - partial extraction)
+#  - Contacts (from store.vol only - partial extraction)
+#  - Device friendly name
+#  - DHCP IP Address
+#  - Email addresses 
+#  - GPS Last Known Position
+#  - GPS Last Position Injected
+#  - GPS Location Sync Start
+#  - IMEI
+#  - Internet Explorer - Typed URLs
+#  - Last SIM IMSI
+#  - OneDrive - DiskQuotaTotal and DiskQuotaRemaining
+#  - OneDrive - list of uploaded files
+#  - Shutdown Date Time
+#  - SIM IMSI
+#  - SMS (sent message decoding still lacks the recipient's phone number)
+#  - Wifi Adapter MAC Address
+#  - Wireless SSIDs
 #
 # You can run the script against: user.hv, system.hv, store.vol, pim.vol and image file
 
 
 # Change history
-# 2015-09-04 First public release (v 0.1)
+# 2015-09-04 (v0.1) First public release
+# 2016-03-20 (v0.2) Thanks to Vincent ECKERT for decoding the timestamp and the message type (SENT/RECEIVED) of SMS text messages
 
-
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # Welcome
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 from datetime import datetime,timedelta
 import binascii
-import codecs
 import os
 import re
 import string
+import struct
 import sys
+import time
 import urllib
+
+script_version = "0.2"
 
 def welcome():
     os.system('cls')
-    print "\n\n Windows Phone 7.8 - Artifacts Parser (v0.1)\n\n"
+    print "\n\n Windows Phone 7.8 - Artifacts Parser (v%s)\n\n" % script_version
     print " How to use ==> python wp78_parser.py [file] [options]\n\n"
     print " Important files to analyze are:\n store.vol, pim.vol, CommsBackup.xml, system.hv, user.hv\n"
     
@@ -84,7 +89,6 @@ def welcome():
     print "   -i   ...... AppID"
     print "   -all ...... Extract all artifacts (it can take up to 2h 30min\n               against a forensic image)\n"
     print "\n Except for SMS messages, all output goes to STDOUT.\n Use redirection to output to a file.\n"
-    
 
 if len(sys.argv) > 2:
     if os.path.exists(sys.argv[1]) == True:
@@ -99,9 +103,9 @@ else:
 fb = open(sys.argv[1], "rb")
 
 
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # FUNCTIONS
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 # -- BEGIN -- From https://github.com/cheeky4n6monkey/4n6-scripts/blob/master/wp8-callhistory.py -- BEGIN --
 
@@ -168,6 +172,7 @@ def f_replace_text(raw_text):
     raw_text=raw_text.replace("\xFF\xFF\x3F\x00","").replace("\x07\x04\x00","").replace("\xFF\xFF\x7F\x40","")
     raw_text=raw_text.replace("\xFF\xFF\x0F\x00","").replace("\xFF\xFF\xFF","").replace("\x0F\x00\x00\x00","").replace("\xFF\xFF","")
     raw_text=raw_text.replace("\xE8","e'").replace("\xE9","e'").replace("\xE0","a'").replace("\xF2","o'").replace("\xF9","u'").replace("\xEC","i'")
+    raw_text=raw_text.replace("\xFC","u")
     filtered_body = filter(lambda x: x in string.printable, raw_text)
     return filtered_body
 
@@ -241,11 +246,11 @@ def f_timestamp_tick(tick):
     ticks = int(tick[-18:])
     # http://stackoverflow.com/questions/3875806/how-does-one-convert-a-net-tick-to-a-python-datetime
     dmoc  = datetime(1, 1, 1) + timedelta(microseconds = ticks/10)
-    return dmoc
+    return dmoc #dateModifiedOnClient
 
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # SIGNATURES
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 #device
 sig_imei             = "\x04\x49\x4D\x45\x49\x04\x00\x0F"
@@ -295,24 +300,24 @@ sig_account_last_sync_success = "\x4C\x00\x61\x00\x73\x00\x74\x00\x53\x00\x79\x0
 sig_smtp_email_address = "\x80\x53\x4D\x54\x50\x00"
 
 #wifi
-sig_ssid_start = "\x3C\x2F\x68\x65\x78\x3E\x0D\x0A\x09\x09\x09\x3C\x6E\x61\x6D\x65\x3E"   # </hex>.....<name>
+sig_ssid_start = "\x3C\x2F\x68\x65\x78\x3E\x0D\x0A\x09\x09\x09\x3C\x6E\x61\x6D\x65\x3E"     # </hex>.....<name>
 sig_ssid_end   = "\x3C\x2F\x6E\x61\x6D\x65\x3E\x0D\x0A\x09\x09\x3C\x2F\x53\x53\x49\x44\x3E" # </name>....</SSID>
 
-# SMS (store.vol)
-sig_ipmsmstext_rcvd  = "\x00\x49\x50\x4D\x2E\x53\x4D\x53\x74\x65\x78\x74\xCF"  # (HEADER) Received: .IPM.SMStextI (received text messages)
-sig_ipmsmstext_sent1 = "\x00\x49\x50\x4D\x2E\x53\x4D\x53\x74\x65\x78\x74\x20"  # (HEADER) Sent    : .IPM.SMStext 
-sig_ipmsmstext_sent2 = "\x00\x49\x50\x4D\x2E\x53\x4D\x53\x74\x65\x78\x74\x00"  # (HEADER) Sent    : .IPM.SMStext.
-sig_ipmsmstext_sent3 = "\x00\x49\x50\x4D\x2E\x53\x4D\x53\x74\x65\x78\x74\xFF"  # (HEADER) Sent    : .IPM.SMStextÿ
-sig_sms_end1         = "\x0F\x53\x4D\x53"     # (FOOTER): .SMS
-sig_sms_end2         = "\x00\x00\x53\x4D\x53" # (FOOTER): .SMS
+#SMS
+sig_sms_pre1    = "\x40\x00\x07\x00\x0A"                         # hex sequence before SMS header
+sig_sms_pre2    = "\x40\x00\x07\x00\xFF"                         # hex sequence before SMS header
+sig_sms_header1 = "\x49\x50\x4D\x2E\x53\x4D\x53\x74"             # (SMS HEADER) IPM.SMSt
+sig_sms_header2 = "\x49\x50\x4D\x2E\x53\x4D\x53\x74\x65\x78\x74" # (SMS HEADER) IPM.SMStext
+sig_sms_footer1 = "\x00\x00\x53\x4D\x53\x00\x00"                 # (SMS FOOTER) ..SMS..
+sig_sms_footer2 = "\x00\x00\x53\x4D\x53\x00\xFF"                 # (SMS FOOTER) ..SMS..
 
 #APPID
 sig_appid = "\x3D\x00\x22\x00\x61\x00\x70\x00\x70\x00\x3A\x00\x2F\x00\x2F\x00" # ="app://
 
 
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # App ID
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 def af_appid():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_appid)
@@ -336,9 +341,9 @@ def af_appid():
 
 
        
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # Friendly name (system.hv)
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 def af_friendly_name():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_friendlyname)
@@ -363,9 +368,9 @@ def af_friendly_name():
             print i
         
 
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # IMEI
-# *********************************************************************************************************************************************************
+# *****************************************************************************************************************************************************
 
 def af_imei():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_imei)
@@ -375,8 +380,11 @@ def af_imei():
         fb.seek(hit+8)
         raw_text=fb.read(17)
         find = re.findall( r'[0-9]{15,17}', raw_text)
-        if len(find)>0:
-            imei_list.append(find[0])
+        try:
+            if len(find)>0:
+                imei_list.append(find[0])
+        except:
+            pass
                 
     imei_list=sorted(set(imei_list))
     
@@ -386,9 +394,9 @@ def af_imei():
             print i
 
 
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # DHCP (system.hv)
-# *********************************************************************************************************************************************************
+# *****************************************************************************************************************************************************
 
 # offsets from DhcpIpAddress
 #
@@ -396,7 +404,6 @@ def af_imei():
 
 def af_dhcp():
     off_dhcpsubnetMask    = [76,80,84]
-    off_Dhcpserver        = [164,168] 
     off_dhcpdefaultgetaway= [160,164,168,236,240,244,248]
     off_dhcpdns           = [248,252,256,320,324,328,336,340]
     off_leaseObtainedHigh = [372,376,416,452,464,468,480,488,496,716]
@@ -414,8 +421,11 @@ def af_dhcp():
         nf = 0 #counter to keep track of not found values
         #find DhcpIPAddress
         fb.seek(hit+26)
-        raw_ip=fb.read(30).replace("\x00","")
-        a = "DhcpIPAddress     : " + f_search_ip(raw_ip)[0] #print IP Address
+        try:
+            raw_ip=fb.read(30).replace("\x00","")
+            a = "DhcpIPAddress     : " + f_search_ip(raw_ip)[0] #print IP Address
+        except:
+            pass
     
         #find DhcpSubnetMask
         if off_dhcpsubnetMask[0]+hit in hits_smask:
@@ -533,9 +543,9 @@ def af_dhcp():
         for i in dhcpserver_list:
             print i
 
-# *********************************************************************************************************************************************************
+# ****************************************************************************************************************************************************
 # Wi-Fi MAC Address (system.hv)
-# *********************************************************************************************************************************************************
+# ****************************************************************************************************************************************************
 
 def af_wifi_adapter_mac():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_wifi_adapter_mac)
@@ -546,9 +556,9 @@ def af_wifi_adapter_mac():
         print binascii.hexlify(fb.read(6))
 
 
-# *********************************************************************************************************************************************************
+# ****************************************************************************************************************************************************
 # SIM IMSI (15 digit long number) (system.hv)
-# *********************************************************************************************************************************************************
+#*****************************************************************************************************************************************************
 
 def af_sim_imsi():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sim_imsi)
@@ -567,9 +577,9 @@ def af_sim_imsi():
             print i
 
 
-# *********************************************************************************************************************************************************    
+# ***************************************************************************************************************************************************
 # Last SIM IMSI (system.hv)
-# *********************************************************************************************************************************************************
+#*****************************************************************************************************************************************************
 
 def af_last_sim_imsi():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_last_sim_imsi)
@@ -592,9 +602,9 @@ def af_last_sim_imsi():
         for i in lastsimimsi_list:
             print i
 
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # Last Shutdown Date Time (system.hv)
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 def af_last_shutdown():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_last_shutdown)
@@ -616,9 +626,9 @@ def af_last_shutdown():
             print i
 
    
-# *********************************************************************************************************************************************************   
+# ****************************************************************************************************************************************************   
 # GPRS IP Address in unallocated space (system.hv)
-# *********************************************************************************************************************************************************
+# ****************************************************************************************************************************************************
 
 def af_gprs_ipaddress():
     temp = []
@@ -640,9 +650,9 @@ def af_gprs_ipaddress():
             for i in temp:
                 print i
 
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # GPS: LastPosInjected - coordinates reported by geolocation apps (system.hv)
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 def af_gps_lastposinjected():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_lastposinjected)
@@ -667,9 +677,9 @@ def af_gps_lastposinjected():
             print i
 
         
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # GPS: LastKnownLocation (system.hv)
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 def af_gps_last_known_location():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_lastknownlocation)
@@ -690,9 +700,9 @@ def af_gps_last_known_location():
         for i in lastknownlocation_list:
             print i
 
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 # GPS: Location Sync Start (system.hv)
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 
 def af_gps_location_syncstart():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_locationsyncstart)
@@ -714,9 +724,9 @@ def af_gps_location_syncstart():
             print i
 
 
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 # Bluetooth connected devices (system.hv)
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 # Keytype | ...macaddress ... | name | class | LastConnectTime
 
@@ -751,10 +761,10 @@ def af_bluetooth():
             print i.replace("\t","\n")
 
 
-# *********************************************************************************************************************************************************
+# *************************************************************************************************************************************************
 # Internet Explorer - Typed URLs (user.hv)
 # (item sequence in hex: URL, LastVisited, Title)
-# *********************************************************************************************************************************************************
+# *************************************************************************************************************************************************
 
 def af_ie_typed_urls():
     hits_lastvisited = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_url_lastvisited)
@@ -802,9 +812,9 @@ def af_ie_typed_urls():
             print i[:46]                    #print LastVisited
     
 
-# *********************************************************************************************************************************************************    
+# ***************************************************************************************************************************************************    
 # Account (user.hv)
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 def af_account():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_account_defaultid) #defaultid in user.hv is the current Microsoft account set up on the mobile device
@@ -832,10 +842,10 @@ def af_account():
             for i in defaultid_list :
                 print i
     
-# *********************************************************************************************************************************************************    
+# **************************************************************************************************************************************************    
 # Account Create Time = when the account was set up on the phone (user.hv)
 # Account Last Sync Success - last time the account was synced (unallocated space)
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 
 def af_account_create_time():
     hits  = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_account_create_time)
@@ -896,9 +906,9 @@ def af_account_create_time():
                 print i 
 
 
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 # OneDrive - Disk Quota and Usage
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 
 # dateModifiedOnClient | DisplayQuotaRemaining | DisplayQuotaTotal | DisplayQuotaUsed
 
@@ -911,7 +921,7 @@ def af_onedrive_disk_quota():
         for hit_dqr in hits_dqr:
             dqr  = ""
             dqt  = ""
-            dqu  = ""
+            #dqu  = ""
             dmoc = ""
             fb.seek(hit_dqr+25)
             raw_text = fb.read(10)
@@ -930,9 +940,9 @@ def af_onedrive_disk_quota():
                 dmoc = find[0].replace('"',"")
                 dmoc = f_timestamp_tick(dmoc)
                 dmoc = "DateModifiedOnClient : " + str(dmoc)
-            final = dmoc + "\t" + dqr + "\t" +  dqt
-            if final.count(':') >=3 :
-                od_quota_list.append(final)
+            sms_complete = dmoc + "\t" + dqr + "\t" +  dqt
+            if sms_complete.count(':') >=3 :
+                od_quota_list.append(sms_complete)
                 
     od_quota_list = set(od_quota_list)
     od_quota_list = sorted(list(od_quota_list))
@@ -942,23 +952,23 @@ def af_onedrive_disk_quota():
         for i in od_quota_list:
             print "\n" + i.replace("\t","\n")
 
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 # OneDrive - Files Uploaded #livefilestore
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 
 def af_onedrive_files_uploaded():
     od_download_list=[]
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_od_download)
     
     for hit in hits:
-        a=""
-        b=""
-        c=""
-        d=""
-        e=""
-        f=""
-        g=""
-        h=""
+        a="" #name
+        b="" #estension
+        c="" #displaysize
+        d="" #lastaccess
+        e="" #modifieddate
+        f="" #ownername
+        g="" #sharinglevel
+        h="" #url
         fb.seek(hit-900)
         raw_text=fb.read(900).split(',')
         for i in raw_text:
@@ -999,31 +1009,31 @@ def af_onedrive_files_uploaded():
     if ii > 0:
         print "\n********************************************\n OneDrive - Uploaded Files (with details) (%d) \n********************************************" % ii
     
-    for i in od_download_list: #URLs with details
-        if i.count(":") > 2:
-            print "\n" + i.replace(";;",";").replace(";","\n").replace("\n\n\n","")
-    
     temp = []
-    ii=0
-    for i in od_download_list: #URLs only
-        if i.count(":") <= 2:
+    
+    for i in od_download_list:
+        #URLs with details 
+        if i.count(":") > 2: 
+            print "\n" + i.replace(";;",";").replace(";","\n").replace("\n\n\n","")
+        #URLs only
+        else:                
             full_url = i.replace(";;",";").replace(";","\n").replace("\n\n\n","").replace("URL         : ","")
-            file = full_url[full_url.rfind("/")+1:full_url.rfind("?")]
-            temp.append(file)
+            odufile = full_url[full_url.rfind("/")+1:full_url.rfind("?")] #odufile = OneDriveUploadedFile
+            temp.append(odufile)
             
     temp = set(temp)
     temp = sorted(list(temp))
     
     if len(temp) > 0:
-        print "\n****************************************\n OneDrive - List of Uploaded Files (URLs only) (%d) \n****************************************" % ii
+        print "\n****************************************\n OneDrive - List of Uploaded Files (URLs only) (%d) \n****************************************" % len(temp)
     
     for i in temp:
         print i
 
    
-# *********************************************************************************************************************************************************    
+# **************************************************************************************************************************************************    
 # SMTP (store.vol)
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 
 def af_email_smtp():
     hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_smtp_email_address)
@@ -1048,9 +1058,9 @@ def af_email_smtp():
         for i in smtp_value_list :
             print i
 
-# *********************************************************************************************************************************************************
+# *************************************************************************************************************************************************
 # Wireless SSID (\Windows\Wlan\CommonAppData\Microsoft\Wlansvc\Profiles\Interfaces\{GUID}\{GUID}.xml
-# *********************************************************************************************************************************************************
+# *************************************************************************************************************************************************
 
 def af_wifi_ssid():
     hits1 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_ssid_start)
@@ -1061,8 +1071,6 @@ def af_wifi_ssid():
         fb.seek(hit1+17)
         try:
             raw_text=str(fb.read(30)).split("</name>")
-            #find = re.findall(r'\b[a-zA-Z0-9 \-_#!?]{2,30}\b', raw_text)
-            #if len(find) > 0:    
             ssid_list.append(raw_text[0])
         except:
             pass
@@ -1075,9 +1083,9 @@ def af_wifi_ssid():
         for i in ssid_list:
             print i
 
-# *********************************************************************************************************************************************************
-## contacts (store.vol)
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
+# contacts (store.vol)
+# **************************************************************************************************************************************************
 
 def af_contacts():
     temp  = [] #generic strings with letters
@@ -1088,7 +1096,7 @@ def af_contacts():
         print "\n****************************************\n Contacts (partial extraction)\n****************************************\n"
         with open(sys.argv[1], "rb") as ftext:
             text = ftext.read()
-            find = re.findall(r'[A-Za-z\'èòàùì ]{2,20}', text) #search text
+            find = re.findall(r'[A-Za-z\'ï¿½ï¿½ï¿½ï¿½ï¿½ ]{2,20}', text) #search text
             find = set(find)
             find = sorted(list(find))
             for i in find:
@@ -1096,10 +1104,10 @@ def af_contacts():
                     temp.append(i)
         for i in temp:
             a  =':'.join(x.encode('hex') for x in i)
-            c1 = r"\x80\x" + a.replace(":",r'\x')     #contact version 1 (€) - from string into hex
-            c2 = r"\x92\x00\x" + a.replace(":",r'\x') #contact version 2 ('.) - from string into hex
-            c3 = r"\x5e\x00\x" + a.replace(":",r'\x') #contact version 3 (^.) - from string into hex
-            c4 = r"\x80\x39\x00\x" + a.replace(":",r'\x') #contact version 4 (€9.) - from string into hex
+            c1 = r"\x80\x" + a.replace(":",r'\x')         #contact version 1 (ï¿½) - from string into hex
+            c2 = r"\x92\x00\x" + a.replace(":",r'\x')     #contact version 2 ('.) - from string into hex
+            c3 = r"\x5e\x00\x" + a.replace(":",r'\x')     #contact version 3 (^.) - from string into hex
+            c4 = r"\x80\x39\x00\x" + a.replace(":",r'\x') #contact version 4 (ï¿½9.) - from string into hex
             temp2.append(c1) 
             temp2.append(c2) 
             temp2.append(c3) 
@@ -1107,22 +1115,22 @@ def af_contacts():
         for i in temp2:
             f = i.replace(r'\x',"").decode('hex')
             if f[1:].lower() != "content":
-                hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, i) #hex hits of contact versions
+                hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, i)   #hex hits of contact versions
                 for hit in hits:
                     fb.seek(hit+len(f))
                     raw_text=fb.read(40)
                     raw_text=raw_text.replace(".","")
                     find = re.findall(r'[0-9 +]{3,30}', raw_text) #retrieve phone numbers
                     if find:
-                        temp3.append(f[1:] + ": " + str(find[0])) #skips first character
+                        temp3.append(f[1:] + ": " + str(find[0])) #skip first character
         temp3=set(temp3)
         temp3=sorted(list(temp3))
         for i in temp3:
             print i
 
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 # phone call log (partial extraction) (pim.vol)
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 
 def af_call_log():
     if 'pim.vol' in sys.argv[1]:
@@ -1140,179 +1148,216 @@ def af_call_log():
             print i[1:] #remove first character
 
 
-# *********************************************************************************************************************************************************
-# SMS (partial extraction) (store.vol)
-# *********************************************************************************************************************************************************
+# *************************************************************************************************************************************************
+# SMS
+# Text message structure:
+# <timestamp 6 bytes> hit_sms_pre (40 00 07 00 0A) <message type 0x21 sent, 0x5d received > |
+# hit_sms_header (IPM.SMStext) | <message body> | hit_sms_footer (..SMS..)
+# **************************************************************************************************************************************************
 
 def af_sms():
-    # received SMS
-    hits       = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_ipmsmstext_rcvd) #IPM.SMStext
-    hits_end1  = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_end1)
-    hits_end2  = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_end2)
+    hits_sms_pre1 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_pre1)
+    hits_sms_pre2 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_pre2)
+    hits_sms_pre  = hits_sms_pre1 + hits_sms_pre2
+    hits_sms_pre  = set(hits_sms_pre)
+    hits_sms_pre  = sorted(list(hits_sms_pre))
     
-    hits2 = hits_end1 + hits_end2 #merge sms_end lists
-    hits2 = set(hits2)
-    hits2 = sorted(list(hits2))
+    hits_sms_header1 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_header1)
+    hits_sms_header2 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_header2)
+    hits_sms_header  = hits_sms_header1 + hits_sms_header2
+    hits_sms_header  = set(hits_sms_header)
+    hits_sms_header  = sorted(list(hits_sms_header))
+     
+    hits_sms_footer1 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_footer1)
+    hits_sms_footer2 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_footer2)
+    hits_sms_footer  = hits_sms_footer1 + hits_sms_footer2
+    hits_sms_footer  = set(hits_sms_footer)
+    hits_sms_footer  = sorted(list(hits_sms_footer))
     
-    hits2_temp = hits2
+    filename = "sms_output.csv"
     
-    sms_rcvd  = [] #used to append offset, from, body
-    temp      = [] #used to keep track of already viewed sms end
+    f = open(filename,"w")
+    f.write("Offset\tTimestamp (YYYY-MM-DD hh:mm:ss)\tMessage Type\tPhone number\tMessage body\n")
+    f.close()
+    f = open(filename,"ab")
     
-    for hit in hits:
-        fb.seek(hit-18)
-        raw_text=fb.read(18).replace("\x00\x00\x03\x00","").replace("\x00\xC0\x00\x00","").replace("\x00\x03\x00\x10","").replace("\x00\x00","").replace("\x08\x00","").replace("\x00","")
-        filtered_phone = filter(lambda x: x in string.printable, raw_text) #keep printable characters
-        phones = re.findall(r'[0-9+]*', raw_text) #look for phone numbers
-        for phone in phones:
-            if len(phone)>2 and phone.startswith("+"): #phone number, skip phone numbers which don't start with the + sign
-                fb.seek(hit+18)
-                for hit2 in hits2:
-                    if hit2 > hit and hit2-hit < 200: #end has to be not too far from start
-                            if hit2 not in temp: #if in temp it means that's already been used
-                                raw_text=fb.read(hit2-(hit+16))
-                                filtered_body=f_replace_text(raw_text)
-                                if len(filtered_body) > 1:
-                                    a = str(hit) + "\t" + "From  : " + phone + "\t" + filtered_body.replace("\n"," ") #offset,from,phone number,body 
-                                    sms_rcvd.append(a)
-                                    temp.append(hit2)
-                                    hits2.pop(hits2.index(hit2))
+    found_counter = 0 #used to count the number of recovered text messages
 
-    # Sent SMS
-    hits1_sent1 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_ipmsmstext_sent1)
-    hits2_sent2 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_ipmsmstext_sent2)
-    hits3_sent3 = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_ipmsmstext_sent3)
-    
-    hits_sent = hits1_sent1 + hits2_sent2 + hits3_sent3 #merge IPM.SMStext lists
-    hits_sent = set(hits_sent)
-    hits_sent = sorted(list(hits_sent))
-    
-    hits2 = hits2_temp
-    
-    #hits_end1  = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_end1)
-    #hits_end2  = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_sms_end2)
-    
-    #hits2 = hits_end1 + hits_end2 #merge sms_end lists
-    #hits2 = set(hits2)
-    #hits2 = sorted(list(hits2))
-    
-    sms_sent = []
-    for hit in hits_sent:
-        fb.seek(hit+15)
-        for hit2 in hits2:
-            if hit2 > hit and hit2-hit < 200:
-                raw_text=fb.read(hit2-(hit+15))
-                filtered_body=f_replace_text(raw_text)
-                try:
-                    if len(filtered_body) > 1:
-                        a = str(hit) + "\t" + "To       : \t" + filtered_body.replace("\n"," ") #offset,body
-                        sms_sent.append(a)
-                except:
-                    pass
+    print "\n" + "*" * 55
+    print " SMS (sent messages lack the recipient's phone number)"
+    print "*" * 55
 
-    # print SMS
-    sms = sms_rcvd + sms_sent #merge sms lists
-    sms = set(sms)
-    sms = sorted(list(sms))
-    if len(sms)>0:
-        print "\n****************************************\n SMS (%s) (partial extraction)\n****************************************\n" % str(len(sms))
-        print "(Sent messages are possibly the ones without the recipient's phone number)"
-        print "(Text messages have been sorted by offset)\n"
-        print "To retrieve more deleted text messages, please manually carve XML entries\nwith X-Ways Forensics/Encase and then run the other script wp78_sms_xml.py"
-        f = open("sms_store.csv","w")
-        f.write("Offset\tTo / From\tBody\n")
-        f.close()
-        
-        f = open("sms_store.csv","ab")
-        for i in sms:
-            f.write(i)
-            f.write("\n")
-
-# *********************************************************************************************************************************************************
+    for hit_sms_footer in hits_sms_footer:
+        offsets_to_check = []
+        sms_date         = ""
+        sms_type         = ""
+        sms_typev        = "" #message type description (verbose): sent, received
+        sms_phone        = ""
+        sms_body         = ""
+        sms_offset       = ""
+        try:
+            for hit_sms_header in hits_sms_header:
+                if hit_sms_header < hit_sms_footer and hit_sms_footer-hit_sms_header < 500: #compare offsets
+                    offsets_to_check.append(hit_sms_header) #list of possible hit_sms_header
+            hit_sms_header = min(offsets_to_check, key=lambda x:abs(x-hit_sms_footer)) #find the closest hit_sms_header to the hit_sms_footer
+            fb.seek(hit_sms_header)
+            raw_body = fb.read(hit_sms_footer-hit_sms_header)
+            sms_body = f_replace_text(raw_body[15:])
+            sms_body = sms_body.replace('\x0D', ' ').replace('\x0A', ' ').replace('\x0C','') #\x0A new line, \x0D carriage return, \x0C FF
+            offsets_to_check = []
+            for hit_sms_pre in hits_sms_pre:
+                if hit_sms_pre < hit_sms_header and hit_sms_header-hit_sms_pre < 500: #compare offsets
+                    offsets_to_check.append(hit_sms_pre) #list of possible hit_sms_pre
+        except:
+            pass
+        try:
+            hit_sms_pre = min(offsets_to_check, key=lambda x:abs(x-hit_sms_footer)) #find the closest hit_sms_pre to the hit_sms_footer
+            sms_offset = str(hit_sms_pre)
+            fb.seek(hit_sms_header-18)
+            raw_text=fb.read(18).replace("\x00\x00\x03\x00","").replace("\x00\xC0\x00\x00","")
+            raw_text=raw_text.replace("\x00\x03\x00\x10","").replace("\x00\x00","").replace("\x08\x00","").replace("\x00","")
+            phones = re.findall(r'[0-9+]*', raw_text) #look for phone numbers
+            
+            for phone in phones:
+                if len(phone)>2 and phone.startswith("+"): #skip phone numbers with no + sign in front of them
+                    sms_phone = "FROM  : " + phone
+            
+            if '21' in sms_type:
+                sms_phone = "TO    : N/A" #N/A = not available
+            elif sms_phone == "":
+                sms_phone = "N/A"
+                    
+            fb.seek(hit_sms_pre-6) # grab the timestamp: read 6 bytes before 0x40 00 07 00 0A
+            
+            # Timestamp parsing provided by Vincent ECKERT 
+            
+            hex_ms      = binascii.hexlify(fb.read(6))
+            hour        = binascii.hexlify(struct.pack('<L',int(hex_ms[0:8],16)))
+            hour        = time.strftime('%H:%M:%S', time.gmtime(int(hour,16)/1000))
+            mstime      = binascii.hexlify(struct.pack('<H',int(hex_ms[8:12],16)))
+            date        = datetime(1900,1,1)+timedelta(int(mstime,16))
+            date_string = str(date)
+            date_string = date_string[:10] #grab the first 10 characters: YYYY-MM-DD
+            sms_date    = date_string + "  " + hour + " " + "(UTC)"
+            #sms_date = '{}/{}/{}'.format(date.day,date.month,date.year),hour,'UTC'
+            #sms_date = '{}-{}-{}'.format(date.year,date.month,date.day),hour,'UTC'
+            fb.seek(hit_sms_pre + 5 + 4)
+            sms_type = binascii.hexlify(fb.read(2))
+           
+            if '21' in sms_type:
+                sms_typev = "Sent"
+                sms_phone = "TO    : N/A"
+            elif '5d' in sms_type:
+                sms_typev = "Received"
+            elif '+' in sms_phone:
+                sms_typev = "Received"
+            else:
+                sms_typev = "N/A"
+            
+            if sms_body <> "" and sms_phone <> "": #discard if sms_body and sms_phone are blank (invalid message block)
+                print "\nOFFSET: %s\nDATE  : %s\nTYPE  : %s\n%s\nBODY  : %s" % (sms_offset,sms_date,sms_typev,sms_phone,sms_body)
+                sms = sms_offset + "\t" + sms_date + "\t" + sms_typev + "\t" + sms_phone + "\t" + sms_body
+                found_counter += 1 
+                f.write(sms + "\n")
+        except:
+            pass
+    
+    print "\n<< Found %d text message(s) (SMS) >>" % found_counter
+    f.close()
+    
+    if found_counter > 0:
+        print "\nText messages exported to %s\%s\n(TAB delimited text file)" % (os.getcwd(),filename)
+    else:
+        os.remove(filename)
+   
+    
+# **************************************************************************************************************************************************
 # MAIN
-# *********************************************************************************************************************************************************
+# **************************************************************************************************************************************************
 
 os.system('cls')
 
 start_time = datetime.now()
 
-if len(sys.argv) > 2:
-    print "\n\nScript started: " + str(start_time)
-    counter = 0
-    for i in sys.argv[2:]:
-        if i == "-a":
-            af_account()
-            af_account_create_time()
-            counter += 1
-        elif i == "-d":
-            af_imei()
-            af_sim_imsi()
-            af_last_sim_imsi()
-            af_wifi_adapter_mac()
-            af_friendly_name()
-            af_last_shutdown()
-            counter += 1
-        elif i == "-g":
-            af_gps_last_known_location()
-            af_gps_lastposinjected()
-            af_gps_location_syncstart()
-            counter += 1
-        elif i == "-h":
-            af_ie_typed_urls()
-            counter += 1
-        elif i == "-ip":
-            af_dhcp()
-            af_gprs_ipaddress()
-            counter += 1
-        elif i == "-o":
-            af_onedrive_disk_quota()
-            af_onedrive_files_uploaded()
-            counter += 1
-        elif i == "-p":
-            af_contacts()
-            af_call_log()
-            af_email_smtp()
-            counter += 1
-        elif i == "-s":
-            af_sms()
-            counter += 1
-        elif i == "-w":
-            af_bluetooth()
-            af_wifi_ssid()
-            counter += 1
-        elif i == "-i":
-            af_appid()
-            counter += 1
-        elif i == "-all":
-            af_imei()
-            af_wifi_adapter_mac()
-            af_friendly_name()
-            af_last_shutdown()
-            af_sim_imsi()
-            af_last_sim_imsi()
-            af_gps_last_known_location()
-            af_gps_lastposinjected()
-            af_gps_location_syncstart()
-            af_account()
-            af_account_create_time()
-            af_contacts()
-            af_call_log()
-            af_sms()
-            af_email_smtp()
-            af_ie_typed_urls()
-            af_bluetooth()
-            af_wifi_ssid()
-            af_dhcp()
-            af_gprs_ipaddress()
-            af_appid()
-            af_onedrive_disk_quota()
-            af_onedrive_files_uploaded()
-            counter += 1
-        else:
-            welcome()
+#if len(sys.argv) > 2:
+print "\n\nScript started: " + str(start_time)
+op_counter = 0
+for op in sys.argv[2:]:
+    if op == "-a":    #account information
+        af_account()
+        af_account_create_time()
+        op_counter += 1
+    elif op == "-d":  #device artifacts
+        af_imei()
+        af_sim_imsi()
+        af_last_sim_imsi()
+        af_wifi_adapter_mac()
+        af_friendly_name()
+        af_last_shutdown()
+        op_counter += 1
+    elif op == "-g":  #gps
+        af_gps_last_known_location()
+        af_gps_lastposinjected()
+        af_gps_location_syncstart()
+        op_counter += 1
+    elif op == "-h":  #Internet Explorer History
+        af_ie_typed_urls()
+        op_counter += 1
+    elif op == "-ip": #DHCP IP Address
+        af_dhcp()
+        af_gprs_ipaddress()
+        op_counter += 1
+    elif op == "-o":  #OneDrive artifacts
+        af_onedrive_disk_quota()
+        af_onedrive_files_uploaded()
+        op_counter += 1
+    elif op == "-p":  #Personal information
+        af_contacts()
+        af_call_log()
+        af_email_smtp()
+        op_counter += 1
+    elif op == "-s":  #SMS messages
+        af_sms()
+        op_counter += 1
+    elif op == "-w":  #Wireless connections
+        af_bluetooth()
+        af_wifi_ssid()
+        op_counter += 1
+    elif op == "-i":   #AppID
+        af_appid()
+        op_counter += 1
+    elif op == "-all": #Extract all artifacts
+        af_imei()
+        af_wifi_adapter_mac()
+        af_friendly_name()
+        af_last_shutdown()
+        af_sim_imsi()
+        af_last_sim_imsi()
+        af_gps_last_known_location()
+        af_gps_lastposinjected()
+        af_gps_location_syncstart()
+        af_account()
+        af_account_create_time()
+        af_contacts()
+        af_call_log()
+        af_sms()
+        af_email_smtp()
+        af_ie_typed_urls()
+        af_bluetooth()
+        af_wifi_ssid()
+        af_dhcp()
+        af_gprs_ipaddress()
+        af_appid()
+        af_onedrive_disk_quota()
+        af_onedrive_files_uploaded()
+        op_counter += 1
+    else:
+        welcome()
+        
+if op_counter > 0:
     end_time = datetime.now()
-    if counter > 0:
-        print "\n\nScript finished: " + str(end_time)
-        print('Duration       : {}'.format(end_time - start_time))
+    print "\n\nScript started : " + str(start_time)
+    print "Script finished: " + str(end_time)
+    print('Duration       : {}'.format(end_time - start_time))
     
 

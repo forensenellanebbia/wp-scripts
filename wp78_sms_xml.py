@@ -20,38 +20,39 @@
 # You can view the GNU General Public License at <http://www.gnu.org/licenses/>
 #
 #
+# Python script to parse SMS text messages carved out in XML format from smartphones
+# running Windows Phone 7.8
 #
-# Python script to parse the following artifacts from a Windows 7.8 phone:
+# __ SCRIPT TESTED ON Microsoft WINDOWS WITH PYTHON 2.7 __
 #
-# - SMS text messages carved out in the XML format
-#
-
 # Change history
+# 2016-03-26  0.3
+# - Bug fixes + unicode support
+#
 # 2015-11-13  0.2
-# - Bug fixes (missing data in the file column)
+# - Bug fixes (missing data in the filename column)
 # - Removed file extension check
 #
 # 2015-09-04  0.1
 # - First public release
 
 
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # Welcome
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 from datetime import datetime,timedelta
+import codecs
 import os
 import re
-import sys
 import string
+import sys
 
 def welcome():
     os.system('cls')
     print "\n\n Windows Phone 7.8 - Parser for carved SMS messages in XML format\n\n"
-    print " How to use ==> python wp78_parser.py folder_to_parse\n\n"
-    print " Type the path of the folder containing the SMS messages\n in XML format that you previously carved out\n\n"
-
-welcome()
+    print " How to use ==> python wp78_parser.py folder\n\n"
+    print " [Type the path of the folder containing the carved SMS messages\n in XML format]\n\n"
 
 if len(sys.argv) > 1:
     if os.path.exists(sys.argv[1]) == True:
@@ -63,18 +64,16 @@ else:
     welcome()
     sys.exit()
 
+dir_to_parse = sys.argv[1]
+file_list    = os.listdir(dir_to_parse)
 
 os.system('cls')
-
-dir      = sys.argv[1]
-
-files    = os.listdir(dir)
-files_wp = [i for i in files]
+print "\nParsing %d text messages...\n\n" % (len(file_list)-1)
 
 
-# *********************************************************************************************************************************************************
+#***************************************************************************************************************************************************
 # FUNCTIONS
-# *********************************************************************************************************************************************************
+#***************************************************************************************************************************************************
 
 # -- BEGIN -- From https://github.com/cheeky4n6monkey/4n6-scripts/blob/master/wp8-callhistory.py -- BEGIN --
 
@@ -141,36 +140,28 @@ def filetime(data):
     conversion= datetime(1601,1,1) + timedelta(microseconds=us)
     return conversion
 
-def replace_text(raw_text):
-    raw_text=raw_text.split('SMS')
-    raw_text=raw_text[0]
-    raw_text=raw_text.replace("\xFF\xFF\x3F\x00","").replace("\x07\x04\x00","").replace("\xFF\xFF\x7F\x40","")
-    raw_text=raw_text.replace("\xFF\xFF\x0F\x00","").replace("\xFF\xFF\xFF","").replace("\x0F\x00\x00\x00","").replace("\xFF\xFF","")
-    raw_text=raw_text.replace("\xE8","e'").replace("\xE9","e'").replace("\xE0","a'").replace("\xF2","o'").replace("\xF9","u'").replace("\xEC","i'")
-    filtered_body = filter(lambda x: x in string.printable, raw_text)
-    return filtered_body
 
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 # SIGNATURES
-# *********************************************************************************************************************************************************
+# ***************************************************************************************************************************************************
 
 # *** SMS XML ***
-ipmsmstext2        = "\x3E\x49\x50\x4D\x2E\x53\x4D\x53\x74\x65\x78\x74\x3C\x2F\x50\x72\x6F\x70\x65\x72\x74\x79\x3E" # >IPM.SMStext</Property> = beginning of a text message
-ipmsmstext2_body   = "\x30\x78\x33\x37\x30\x30\x31\x66" # <Property Name="0x37001f"> = body
-ipmsmstext2_phone  = "\x30\x78\x33\x30\x30\x33\x30\x30\x31\x66" # 0x3003001f" = phone number
-ipmsmstext2_marker = "\x3C\x2F\x50\x72\x6F\x70\x65\x72\x74\x79\x3E\x3C\x50\x72\x6F\x70\x65\x72\x74\x79" # </Property><Property = end of field
+ipmsmstext_begin  = "\x3E\x49\x50\x4D\x2E\x53\x4D\x53\x74\x65\x78\x74\x3C\x2F\x50\x72\x6F\x70\x65\x72\x74\x79\x3E" # >IPM.SMStext</Property> = beginning of a text message
+ipmsmstext_body   = "\x30\x78\x33\x37\x30\x30\x31\x66" # <Property Name="0x37001f"> = body
+ipmsmstext_phone  = "\x30\x78\x33\x30\x30\x33\x30\x30\x31\x66" # 0x3003001f" = phone number
+ipmsmstext_marker = "\x3C\x2F\x50\x72\x6F\x70\x65\x72\x74\x79\x3E\x3C\x50\x72\x6F\x70\x65\x72\x74\x79" # </Property><Property = end of field
 
 #<Property Name="0xe070003"> 21=sent, 1=received - offset from >IPM.SMStext</Property> = 23
-ipmsmstext2_tofrom = "\x3C\x50\x72\x6F\x70\x65\x72\x74\x79\x20\x4E\x61\x6D\x65\x3D\x22\x30\x78\x65\x30\x37\x30\x30\x30\x33\x22\x3E"
+ipmsmstext_tofrom = "\x3C\x50\x72\x6F\x70\x65\x72\x74\x79\x20\x4E\x61\x6D\x65\x3D\x22\x30\x78\x65\x30\x37\x30\x30\x30\x33\x22\x3E"
 
 # <Property Name="0xe060040"> = timestamp (received/sent)
-ipmsmstext2_date   = "\x3C\x50\x72\x6F\x70\x65\x72\x74\x79\x20\x4E\x61\x6D\x65\x3D\x22\x30\x78\x65\x30\x36\x30\x30\x34\x30\x22\x3E"
+ipmsmstext_date   = "\x3C\x50\x72\x6F\x70\x65\x72\x74\x79\x20\x4E\x61\x6D\x65\x3D\x22\x30\x78\x65\x30\x36\x30\x30\x34\x30\x22\x3E"
 
 
-# *********************************************************************************************************************************************************
+# ****************************************************************************************************************************************************
 # SMS xml - from CommsBackup.xml generated by WP automatic backup 
-# *********************************************************************************************************************************************************
-# Order of fields: beginning (IPM.SMStext), Sent(21)/Received(1) (<Property Name="0xe070003">), date (<Property Name="0xe060040">), body (<Property Name="0x37001f">), phone number (<Property Name="0x3003001f">) 
+# ****************************************************************************************************************************************************
+# Field order: beginning (IPM.SMStext), Sent(21)/Received(01) (<Property Name="0xe070003">), date (<Property Name="0xe060040">), body (<Property Name="0x37001f">), phone number (<Property Name="0x3003001f">) 
 # </Property><Property = generic end and start of a new field
 
 def find_tofrom(hit1):
@@ -182,49 +173,45 @@ def find_tofrom(hit1):
         fb.seek(hit1+22+33)
         raw = fb.read(2)
     if raw  == "21": #sent
-        tofrom = "To  : "
+        tofrom = "To: "
     elif raw == "01": #received
         tofrom = "From: "
     else:
-        tofrom = "N/A : "
+        tofrom = "N/A: "
     return tofrom
 
-def accents(text):
-    text = text.replace("\xE8","e'").replace("\xE9","e'").replace("\xE0","a'").replace("\xF2","o'")
-    text = text.replace("\xC3\xAC","i'").replace("\xC3\xA8","e'").replace("\xC3\xA9","e'").replace("\xC3\xB2","o'")
-    text = text.replace("\xC3\xB9","u'").replace("\xC3","a'").replace("\x26\x69\x67\x72\x61\x76\x65\x3B","i'")
-    return text
 
-os.chdir(dir)
+os.chdir(dir_to_parse)
 
 sms = []
 
-f=open("sms_xml.csv","w")
-f.write("Date\tText\tFrom / To\tFile\n")
+f = codecs.open("sms_xml.csv", 'w', 'utf-8')
+f.write(u'\ufeff') #added for Excel compatibility
+f.write("Timestamp (UTC)\tMessage Body\tFrom / To\tFile\n")
 
-for file in files_wp:
-    fb = open(file,"rb")
+for filename in file_list:
+    fb = open(filename,"rb")
 
-    hits_sms    = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext2)
-    hits_tofrom = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext2_tofrom)
-    hits_date   = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext2_date)
-    hits_body   = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext2_body)
-    hits_marker = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext2_marker)
-    hits_phone  = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext2_phone)
+    hits_sms    = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext_begin)
+    hits_tofrom = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext_tofrom)
+    hits_date   = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext_date)
+    hits_body   = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext_body)
+    hits_marker = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext_marker)
+    hits_phone  = sliceNsearchRE(fb, CHUNK_SIZE, DELTA,ipmsmstext_phone)
     
     for hit_sms in hits_sms: #sms
         status=find_tofrom(hit_sms)
         if hit_sms+115 in hits_date:
             fb.seek(hit_sms+115+27)
             raw_date=fb.read(16)
-            raw_date2 = r'\x'.join(x.encode('hex') for x in raw_date) #translate from ascii text to hex code
+            raw_date2 = r'\x'.join(x.encode('hex') for x in raw_date) #convert from ascii to hex
             raw_date2 = r"\x" + raw_date2 #prepend \x at the beginning
             f = raw_date2.replace(r'\x',"").decode('hex')
             try:
                 us = int(f,16)/10
                 conversion= datetime(1601,1,1) + timedelta(microseconds=us)
                 if str(conversion).startswith("20"):
-                    sms_date = "Date: " + str(conversion) + " (UTC)"
+                    sms_date = str(conversion) + " (UTC)"
                 else:
                     sms_date = "not found"
             except:
@@ -234,28 +221,29 @@ for file in files_wp:
                 fb.seek(hit_body+10)
                 raw_body=fb.read(400).replace("\x0D", " ").replace("\x0A", " ") #remove carriage return and line feed from text
                 raw_body=raw_body.split("\x3C\x2F\x50\x72\x6F\x70\x65\x72\x74\x79\x3E") #means </property>
-                raw_body=accents(raw_body[0])
-                sms_body = "Text: " + raw_body #filter(lambda x: x in string.printable, raw_body[0])
+                sms_body = raw_body[0].decode('utf-8',"ignore")
         for hit_phone in hits_phone:
             if hit_phone > (hit_sms+115): #don't go over the next sms message
                 fb.seek(hit_phone+12)
                 raw_phone=fb.read(28).split("\x3C\x2F\x50\x72\x6F\x70\x65\x72\x74\x79\x3E") #means </property>
-                find=re.findall(r'[0-9+]*', raw_phone[0])
-                if find[0]:
-                    sms_phone = status + find[0]
-                    final = sms_date + "\t" + sms_body + "\t" + sms_phone + "\t" + file + "\n"
-                    sms.append(final)  
+                find=re.findall(r'[0-9+]+', raw_phone[0])
+                try:
+                    if find[0]:
+                        sms_phone    = status + find[0]
+                        sms_complete = sms_date + "\t" + sms_body + "\t" + sms_phone + "\t" + filename + "\n"
+                        sms.append(sms_complete)
+                except:
+                    pass  
         
-dup = str(len(sms))
-
-sms = set(sms)
-sms = sorted(list(sms))
+sms = set(sms)          #remove duplicates
+sms = sorted(list(sms)) #sort chronologically
 
 f=open("sms_xml.csv","ab")
 
-print "\n**************************************** \nSMS (From %s to %s) (recovered from xml backup)\n****************************************\n" % (dup, str(len(sms)))
-print "Written to output file: sms_xml.csv\n"
+result = "SMS in XML format: parsed %d out of %d\n" % (len(sms),(len(file_list)-1))
+print "*" * len(result) + "\n" + result + "*" * len(result) + "\n" 
+print "Written to output file: %s\sms_xml.csv\n" % os.getcwd()
 
 for i in sms:
-    f.write(i) 
+    f.write(i.encode('utf-8')) 
     

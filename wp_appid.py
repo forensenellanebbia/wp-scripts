@@ -176,17 +176,18 @@ else:
                 w.write('App Name\tInstalled by\tApp ID\tURL\n')
                 with open(sys.argv[2], 'r') as f:
                     for line in f:
-                        if len(line) == 36: # AppID must be 36 characters long
-                            appname, by, appid, appurl = solve_name(line, userchoice)
-                            w.write ("%s\t%s\t%s\t%s\n" % (appname, by, appid, appurl))
-                        elif len(line) > 36:
-                            filtered = filter(lambda x: x in string.printable, line)
-                            find=re.findall(r'\b[0-9a-bA-Z\-]{36}\b', filtered)
-                            if len(find) > 0:
-                                appname, by, appid, appurl = solve_name(find[0], userchoice)
+                        if ":" not in line:
+                            if len(line) == 36: # AppID must be 36 characters long
+                                appname, by, appid, appurl = solve_name(line, userchoice)
                                 w.write ("%s\t%s\t%s\t%s\n" % (appname, by, appid, appurl))
-                        else:
-                            pass
+                            elif len(line) > 36:
+                                filtered = filter(lambda x: x in string.printable, line)
+                                find=re.findall(r'\b[0-9a-bA-Z\-]{36}\b', filtered)
+                                if len(find) > 0:
+                                    appname, by, appid, appurl = solve_name(find[0], userchoice)
+                                    w.write ("%s\t%s\t%s\t%s\n" % (appname, by, appid, appurl))
+                            else:
+                                pass
             w.close()
             print "\n Done!\n\n"
         else:

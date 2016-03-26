@@ -1,4 +1,5 @@
 Scripts written in Python 2.7.8 and tested on Microsoft Windows.
+
 Please read my blog post here:
 http://forensenellanebbia.blogspot.it/2015/09/windows-phone-78-forensics.html
 
@@ -23,7 +24,7 @@ extracts the following artifacts from a forensic image:
 - OneDrive - DiskQuotaTotal and DiskQuotaRemaining
 - OneDrive - list of uploaded files
 - Shutdown Date Time
-- SMS (partial extraction)
+- SMS (the recipient's phone number is not decoded yet)
 - Wifi Adapter MAC Address
 - Wireless SSIDs
 
@@ -31,4 +32,4 @@ extracts the following artifacts from a forensic image:
 does the parsing of carved out SMS XML entries
 
 # wp_appid.py
-retrieves the AppName from an AppID
+retrieves AppNames from AppIDs
