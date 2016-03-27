@@ -29,7 +29,7 @@
 #  - Account - Default ID
 #  - Account - Last Sync Success
 #  - Bluetooth connected devices
-#  - Call Log (from pim.vol only - partial extraction)
+#  - Call Log
 #  - Contacts (from store.vol only - partial extraction)
 #  - Device friendly name
 #  - DHCP IP Address
@@ -55,6 +55,7 @@
 # 2015-09-04 (v0.1) First public release
 # 2016-03-20 (v0.2) Thanks to Vincent ECKERT for decoding the timestamp and the message type (SENT/RECEIVED) of SMS text messages
 # 2016-03-26 (v0.3) improved unicode support + several small bugs fixed
+# 2016-03-27 (v0.4) Timestamp decoded for calls log
 
 # ***************************************************************************************************************************************************
 # Welcome
@@ -71,7 +72,7 @@ import sys
 import time
 import urllib
 
-script_version = "0.3"
+script_version = "0.4"
 
 def welcome():
     os.system('cls')
@@ -240,6 +241,18 @@ def f_timestamp_tick(tick):
     dmoc  = datetime(1, 1, 1) + timedelta(microseconds = ticks/10)
     return dmoc #dateModifiedOnClient
 
+
+def f_timestamp_sql(data):
+    # Timestamp parsing provided by Vincent ECKERT 
+    hour        = binascii.hexlify(struct.pack('<L',int(data[0:8],16)))
+    hour        = time.strftime('%H:%M:%S', time.gmtime(int(hour,16)/1000))
+    mstime      = binascii.hexlify(struct.pack('<H',int(data[8:12],16)))
+    date        = datetime(1900,1,1)+timedelta(int(mstime,16))
+    date_string = str(date)
+    date_string = date_string[:10] #grab the first 10 characters: YYYY-MM-DD
+    timestamp_sql = date_string + "  " + hour + " " + "(UTC)"
+    return timestamp_sql
+
 # ***************************************************************************************************************************************************
 # SIGNATURES
 # ***************************************************************************************************************************************************
@@ -305,6 +318,9 @@ sig_sms_header2 = "\x49\x50\x4D\x2E\x53\x4D\x53\x74\x65\x78\x74" # (SMS HEADER) 
 sig_sms_footer1 = "\x00\x00\x53\x4D\x53\x00\x00"                 # (SMS FOOTER) ..SMS..
 sig_sms_footer2 = "\x00\x00\x53\x4D\x53\x00\xFF"                 # (SMS FOOTER) ..SMS..
 sig_sms_footer3 = "\xFF\x0F\x53\x4D\x53\x00\x00"                 # (SMS FOOTER) ÿ.SMS..
+
+#call
+sig_call_header = "\xEE\xFF\xF3\x00"
 
 #APPID
 sig_appid = "\x3D\x00\x22\x00\x61\x00\x70\x00\x70\x00\x3A\x00\x2F\x00\x2F\x00" # ="app://
@@ -1128,23 +1144,44 @@ def af_contacts():
             print i
 
 # **************************************************************************************************************************************************
-# phone call log (partial extraction) (pim.vol)
+# phone call log
+# Call log entry structure
+# sig_call_header (EE FF F3 00) | <timestamp 6 bytes> | ... \x03\x80 followed by contact name with phone number | footer \x00\x47
 # **************************************************************************************************************************************************
 
 def af_call_log():
-    if 'pim.vol' in sys.argv[1]:
-        temp  = []
-        print "\n****************************************\n Phone Call Log (partial extraction)\n****************************************\n"
-        with open(sys.argv[1], "rb") as ftext:
-            text = ftext.read().replace("\x00\x00\x20\x00","").replace("\x00\x6F\x00"," ").replace("\x00\x47"," ").replace("\x00\x57"," ").replace("\x00\x57\x00"," ").replace("\x00"," ").replace("\xE0","a'")
-            find = re.findall(r'\x80[0-9+][A-Za-z0-9+\' ]*', text)
-            find = set(find)
-            find = sorted(list(find))
-            for i in find:
-                if len(i)>3 and "clog" not in i: #clog is a false positive
-                    temp.append(i)
-        for i in temp:
-            print i[1:] #remove first character
+    hits_call = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, sig_call_header)
+    call_log = []
+    
+    for hit_call in hits_call:
+        fb.seek(hit_call)
+        fb.seek(hit_call+4) # grab the timestamp: read 6 bytes after call log signature
+        hex_ms = binascii.hexlify(fb.read(6))
+        call_date = f_timestamp_sql(hex_ms)
+        raw_text = fb.read(120)
+        try:
+            if '\x00\x47' in raw_text:
+                raw_text = raw_text.split('\x00\x47') #split footer ".G"
+                try:
+                    if '\x03\x80' in raw_text[0]:
+                        raw_text[0]=raw_text[0].split('\x03\x80') #split ".€" right before the contact name
+                        raw_text = raw_text[0]
+                        contact = raw_text[len(raw_text)-1] #the contact name is next to the call log footer ".G.", so last item in the list
+                        phone_call = call_date + " (OFFSET: " + str(hit_call) + ")" + " ## " + contact
+                        call_log.append(phone_call)
+                except:
+                    pass
+        except:
+            pass
+        
+    call_log = set(call_log)
+    call_log = sorted(list(call_log))
+
+    if len(call_log) > 0:
+        title = "\nPhone Call Log (call type and duration not decoded yet)\n"
+        print "\n" + "*" * len(title) + title + "*" * len(title) 
+        for call_entry in call_log:
+            print call_entry
 
 
 # *************************************************************************************************************************************************
@@ -1152,6 +1189,7 @@ def af_call_log():
 # Text message structure:
 # <timestamp 6 bytes> hit_sms_pre (40 00 07 00 0A) <message type 0x21 sent, 0x5d received > |
 # hit_sms_header (IPM.SMStext) | <message body> | hit_sms_footer (..SMS..)
+# timestamp little endian: 4 bytes = hour in ms, 2 bytes = date since 1/1/1900
 # **************************************************************************************************************************************************
 
 def af_sms():
@@ -1206,7 +1244,6 @@ def af_sms():
             raw_body = fb.read(hit_sms_footer-hit_sms_header)
             sms_body = raw_body[12:].replace('\x0D', '').replace('\x0A', '').replace('\x09', '')
             #\x0A new line, \x0D carriage return, \x09 horizontal tab
-            #sms_body = filter(lambda x: x in string.printable, sms_body)
             
             #remove noise
             noise = ['\x00','\x01','\x02','\x03','\x04','\x05','\x06','\x07','\x08','\x0B','\x0C','\x0E','\x0F','\x10','\x11',
@@ -1250,24 +1287,11 @@ def af_sms():
             for allowed_char in range(0, len(raw_text)):
                 if raw_text[allowed_char] in allowed_chars:
                     sms_phone = sms_phone+raw_text[allowed_char]
-            
-            #phones = re.findall(r'[0-9+]*', raw_text) #look for phone numbers
 
             fb.seek(hit_sms_pre-6) # grab the timestamp: read 6 bytes before 0x40 00 07 00 0A
+            hex_ms   = binascii.hexlify(fb.read(6))
+            sms_date = f_timestamp_sql(hex_ms)
             
-            # Timestamp parsing provided by Vincent ECKERT 
-            
-            hex_ms      = binascii.hexlify(fb.read(6))
-            hour        = binascii.hexlify(struct.pack('<L',int(hex_ms[0:8],16)))
-            hour        = time.strftime('%H:%M:%S', time.gmtime(int(hour,16)/1000))
-            mstime      = binascii.hexlify(struct.pack('<H',int(hex_ms[8:12],16)))
-            date        = datetime(1900,1,1)+timedelta(int(mstime,16))
-            date_string = str(date)
-            date_string = date_string[:10] #grab the first 10 characters: YYYY-MM-DD
-            sms_date    = date_string + "  " + hour + " " + "(UTC)"
-            #sms_date = '{}/{}/{}'.format(date.day,date.month,date.year),hour,'UTC'
-            #sms_date = '{}-{}-{}'.format(date.year,date.month,date.day),hour,'UTC'
-
             #read and check message type
             fb.seek(hit_sms_pre + 5 + 4)
             sms_type = binascii.hexlify(fb.read(2))
