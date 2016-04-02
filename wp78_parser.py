@@ -66,7 +66,6 @@ import binascii
 import codecs
 import os
 import re
-import string
 import struct
 import sys
 import time

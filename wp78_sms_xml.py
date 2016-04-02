@@ -45,7 +45,6 @@ from datetime import datetime,timedelta
 import codecs
 import os
 import re
-import string
 import sys
 
 def welcome():

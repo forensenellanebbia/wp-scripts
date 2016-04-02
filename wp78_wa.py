@@ -37,7 +37,7 @@
 # https://www.sqlite.org/download.html
 
 
-from datetime import datetime,timedelta
+from datetime import datetime
 import binascii
 import os
 import shutil
@@ -379,10 +379,10 @@ if os.path.exists('./' + dst_s_folder) == True:
     shutil.rmtree(dst_s_folder, ignore_errors=True)
 else:
     os.mkdir(dst_s_folder)
-for file in os.listdir(os.getcwd()):
-    if str(file).endswith('_short.htm'):
-        src_file = os.path.join(os.getcwd(), file)
-        dst_file = os.path.join(dst_s_folder, file)
+for htm_file in os.listdir(os.getcwd()):
+    if str(htm_file).endswith('_short.htm'):
+        src_file = os.path.join(os.getcwd(), htm_file)
+        dst_file = os.path.join(dst_s_folder, htm_file)
         shutil.move(src_file, dst_file)
 
 
@@ -410,14 +410,14 @@ if os.path.exists('./' + dst_s_folder) == True:
     shutil.rmtree(dst_s_folder, ignore_errors=True)
 else:
     os.mkdir(dst_s_folder)
-for file in os.listdir(os.getcwd()):
-    if str(file).endswith('.htm'):
-        src_file = os.path.join(os.getcwd(), file)
-        dst_file = os.path.join(dst_s_folder, file)
+for htm_file in os.listdir(os.getcwd()):
+    if str(htm_file).endswith('.htm'):
+        src_file = os.path.join(os.getcwd(), htm_file)
+        dst_file = os.path.join(dst_s_folder, htm_file)
         shutil.move(src_file, dst_file)
-    elif str(file).endswith('.js'):
-        src_file = os.path.join(os.getcwd(), file)
-        dst_file = os.path.join(dst_s_folder, file)
+    elif str(htm_file).endswith('.js'):
+        src_file = os.path.join(os.getcwd(), htm_file)
+        dst_file = os.path.join(dst_s_folder, htm_file)
         shutil.move(src_file, dst_file)
 
 
@@ -425,10 +425,10 @@ for file in os.listdir(os.getcwd()):
 dst_s_folder = "thumbnails"
 
 os.mkdir(dst_s_folder)
-for file in os.listdir(os.getcwd()):
-    if str(file).endswith('.jpg'):
-        src_file = os.path.join(os.getcwd(), file)
-        dst_file = os.path.join(dst_s_folder, file)
+for thumb in os.listdir(os.getcwd()):
+    if str(thumb).endswith('.jpg'):
+        src_file = os.path.join(os.getcwd(), thumb)
+        dst_file = os.path.join(dst_s_folder, thumb)
         shutil.move(src_file, dst_file)
         
 #CSV folder
