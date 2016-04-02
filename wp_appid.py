@@ -117,6 +117,18 @@ def solve_name(appid, userchoice):
         appname = "Kid Zone"
     elif appid == '892E3992-8909-4443-81E2-3D8281981975':
         appname = "Employee Apps"
+    elif appid == '290CACFA-0F1C-4A75-8C27-60D796DBC26F':
+        appname = "Viber"
+        by = installedby[1]
+    elif appid == '55A4097E-D65F-4A77-81A3-7FEC8BACDEDD':
+        appname = "Nokia Creative Studio"
+        by = installedby[0] + "/" + installedby[1]
+    elif appid == 'B95840DC-A542-42A6-BEE4-7D1A12F62D2C':
+        appname = "Network Setup"
+        by = installedby[1]
+    elif appid == 'DD91F5D5-9CF8-4D1D-8FBA-BEAA01FAFA47':
+        appname = "Counters"
+        by = installedby[1]
     else:
         hdr = {'User-Agent':'Mozilla/5.0'}
         url="http://windowsphone.com/s?appid="+appid

@@ -1,4 +1,4 @@
-Scripts written in Python 2.7.8 and tested on Microsoft Windows.
+Scripts written in Python 2.7.x and tested on Microsoft Windows.
 
 Please read my blog post here:
 http://forensenellanebbia.blogspot.it/2015/09/windows-phone-78-forensics.html
@@ -33,3 +33,6 @@ does the parsing of carved out SMS XML entries
 
 # wp_appid.py
 retrieves AppNames from AppIDs
+
+# wp78_wa.py
+WhatsApp chat parser

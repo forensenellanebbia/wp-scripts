@@ -514,9 +514,9 @@ def af_dhcp():
             e = "LeaseObtainedHigh : Not found"
             nf += 1
     
-        f = a + ";" + b + ";" + c + ";" + d + ";" + e
+        f_htm = a + ";" + b + ";" + c + ";" + d + ";" + e
         if nf <= 3: #skip DhcpIpAddresses with 4 values not found 
-            dhcp_temp.append(f)
+            dhcp_temp.append(f_htm)
                         
     
     dhcp_final=[]
@@ -981,7 +981,7 @@ def af_onedrive_files_uploaded():
         c="" #displaysize
         d="" #lastaccess
         e="" #modifieddate
-        f="" #ownername
+        f_htm="" #ownername
         g="" #sharinglevel
         h="" #url
         fb.seek(hit-900)
@@ -1001,7 +1001,7 @@ def af_onedrive_files_uploaded():
                 e = f_timestamp_tick(i)
                 e = "modifiedDate: " + str(e)
             elif "ownerName" in i:
-                f = i.replace('\"','').replace(":","   : ") 
+                f_htm = i.replace('\"','').replace(":","   : ") 
             elif "sharingLevel\"" in i:
                 g = i.replace('\"','').replace(":",": ") 
         fb.seek(hit+20)
@@ -1010,7 +1010,7 @@ def af_onedrive_files_uploaded():
         find = re.findall(r'(?:https|http):[0-9a-zA-Z:/\.\-\=_%?&+]*', raw_text) #look for URLs
         if find:
             h = "URL         : " + find[0]
-        i = a + ";" + b+ ";" + c+ ";" + d+ ";" + e+ ";" + f+ ";" + g + ";" + h
+        i = a + ";" + b+ ";" + c+ ";" + d+ ";" + e+ ";" + f_htm+ ";" + g + ";" + h
         od_download_list.append(i)
     
     od_download_list = set(od_download_list)
@@ -1128,16 +1128,16 @@ def af_contacts():
             temp2.append(c3) 
             temp2.append(c4)
         for i in temp2:
-            f = i.replace(r'\x',"").decode('hex')
-            if f[1:].lower() != "content":
+            f_htm = i.replace(r'\x',"").decode('hex')
+            if f_htm[1:].lower() != "content":
                 hits = sliceNsearchRE(fb, CHUNK_SIZE, DELTA, i)   #hex hits of contact versions
                 for hit in hits:
-                    fb.seek(hit+len(f))
+                    fb.seek(hit+len(f_htm))
                     raw_text=fb.read(40)
                     raw_text=raw_text.replace(".","")
                     find = re.findall(r'[0-9 +]{3,30}', raw_text) #retrieve phone numbers
                     if find:
-                        temp3.append(f[1:] + ": " + str(find[0])) #skip first character
+                        temp3.append(f_htm[1:] + ": " + str(find[0])) #skip first character
         temp3=set(temp3)
         temp3=sorted(list(temp3))
         for i in temp3:
@@ -1216,10 +1216,10 @@ def af_sms():
     
     filename = "sms_output.csv"
     
-    f = codecs.open("sms_output.csv", 'w', 'utf-8')
-    f.write(u'\ufeff') #added for Excel compatibility
-    f.write("Offset\tTimestamp (YYYY-MM-DD hh:mm:ss)\tMessage Type\tPhone number\tMessage body\n")
-    f.close()
+    f_htm = codecs.open("sms_output.csv", 'w', 'utf-8')
+    f_htm.write(u'\ufeff') #added for Excel compatibility
+    f_htm.write("Offset\tTimestamp (YYYY-MM-DD hh:mm:ss)\tMessage Type\tPhone number\tMessage body\n")
+    f_htm.close()
     
     found_counter = 0 #used to count the number of recovered text messages
 
@@ -1316,9 +1316,9 @@ def af_sms():
                 #print "\nOFFSET: %s\nDATE  : %s\nTYPE  : %s\n%s\nBODY  : %s" % (sms_offset,sms_date,sms_typev,sms_phone,sms_body)
                 sms = sms_offset + "\t" + sms_date + "\t" + sms_typev + "\t" + sms_phone + "\t" + sms_body + "\n"
                 found_counter += 1
-                f = open(filename,"ab")
-                f.write(sms.encode('utf-8'))
-                f.close()
+                f_htm = open(filename,"ab")
+                f_htm.write(sms.encode('utf-8'))
+                f_htm.close()
                 if found_counter % 50 == 0: #print status every 50 messages
                     print "..."
                     print "\nNumber of messages found: %d" % found_counter  
