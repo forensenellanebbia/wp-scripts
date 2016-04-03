@@ -5,7 +5,7 @@
 # Blog  : http://forensenellanebbia.blogspot.it
 #
 # WARNING: This program is provided "as-is"
-# See http://forensenellanebbia.blogspot.it/ for further details.
+# See http://forensenellanebbia.blogspot.it/2015/09/windows-phone-78-forensics.html for further details.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
